@@ -2,21 +2,18 @@
 ### Description: Shoot down unauthorised flying toys
 ### Category: Games 
 ### License: MIT
-### Appname : dronehunt
+### Appname : DroneHunt
 
 import buttons
 import ugfx
 import micropython
 import pyb
 from dialogs import prompt_boolean, notice
+import gc
 
 crosshair_x = 100
 crosshair_y = 100
 score = 0
-CROSSHAIR_DIAMETER = 10
-CROSSHAIR_RADIUS = CROSSHAIR_DIAMETER // 2
-CROSSHAIR_LINE_OFFSET = CROSSHAIR_RADIUS // 2
-CROSSHAIR_BLANKING = CROSSHAIR_DIAMETER + CROSSHAIR_RADIUS
 GROUND_1 = ugfx.html_color(0x804000)
 GROUND_2 = ugfx.html_color(0xf05030)
 GRASS = ugfx.html_color(0x4DBD33)
@@ -45,7 +42,7 @@ def random_choice(objs):
     # We don't have import random :(
     return objs[pyb.rng() % len(objs)]
 
-@micropython.native
+#@micropython.native
 def get_background_pixel(x, y):
     y = 240 - y
     global pixels
@@ -72,7 +69,7 @@ def redraw_whole_bg():
     redraw_bg_range(0, 201, 320, 240)
 
 
-@micropython.viper
+#@micropython.viper
 def redraw_bg_range(x: int, y: int, to_x: int, to_y: int):
     if x < 0: x = 0
     if y < 0: y = 0
