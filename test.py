@@ -382,7 +382,7 @@ ugfx.text(110, 10, "EMF", ugfx.WHITE)
 ugfx.set_default_font(ugfx.FONT_MEDIUM)
 ugfx.text(100, 80, "It's unbelievable!", ugfx.WHITE)
 
-ugfx.text(10, 140, "There are too many toys in the skies.", ugfx.WHITE)
+ugfx.text(15, 140, "There are too many toys in the skies.", ugfx.WHITE)
 ugfx.text(95, 160, "Shoot them down.", ugfx.WHITE)
 
 
