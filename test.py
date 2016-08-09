@@ -2,6 +2,7 @@ import buttons
 import ugfx
 import micropython
 import pyb
+from dialogs import prompt_boolean
 
 crosshair_x = 100
 crosshair_y = 100
@@ -22,6 +23,13 @@ next_change = 0
 next_enemy = 0
 animation_frame = 0
 pixels = 0
+tmc_count = 0
+last_crosshair_move = 0
+
+def random_choice(objs):
+    # We don't have import random :(
+    return objs[pyb.rng() % len(objs)]
+
 @micropython.native
 def get_background_pixel(x, y):
     y = 240 - y
@@ -73,6 +81,10 @@ def draw_crosshair(x, y):
 def move_crosshair(move_x, move_y):
     global crosshair_x
     global crosshair_y
+    global last_crosshair_move
+    if last_crosshair_move > pyb.millis() - 50:
+        return
+    last_crosshair_move = pyb.millis()
     redraw_bg_range(crosshair_x - CROSSHAIR_BLANKING, crosshair_y - CROSSHAIR_BLANKING,
                     crosshair_x + CROSSHAIR_BLANKING, crosshair_y + CROSSHAIR_BLANKING)
     crosshair_x += move_x
@@ -99,6 +111,7 @@ def is_hit(x_aim, y_aim):
     for copter in quadcopters:
         if copter.x - 20 < x_aim < copter.x + 20 and copter.y - 20 < y_aim < copter.y + 20:
             copter.undraw()
+            award_points(copter.score)
             quadcopters.remove(copter)
             return True
 
@@ -106,7 +119,6 @@ def shoot():
     if is_hit(crosshair_x, crosshair_y):
         tone(140,250,30)
         tone(180,250,30)
-        award_points(10)
     else:
         tone(140,250,30)
         tone(100,250,30)
@@ -133,30 +145,42 @@ buttons.init()
 
 quadcopters = []
 class Quadcopter(object):
-    def __init__(self, x, y, direction):
+    def __init__(self, x, y, direction, speed):
         self.x = x
         self.y = y
         self.crashing = False
         self.direction = direction
         self.animation_frame = 0
+        self.speed = speed
+        self.color = random_choice((ugfx.BLACK, ugfx.ORANGE, ugfx.GREEN, ugfx.YELLOW, ugfx.PURPLE))
+    
+    @property
+    def score(self):
+        score = 10 * self.speed
+        if self.crashing:
+            score += 50
+        return score
     
     def move_copter(self):
+        if self.x < -20 or self.x > 350:
+            raise ValueError("Too far outside the screen")
         self.undraw()
         if self.direction == '+':
-            self.x += 2
+            self.x += 2 * self.speed
         else:
-            self.x -= 2
+            self.x -= 2 * self.speed
         if self.crashing:
-            self.y -= 5
+            self.y += 3
         self.draw()
     
     def undraw(self):
-        ugfx.area(self.x-(QUADCOPTER_BODY_SIZE*4), self.y-(QUADCOPTER_BODY_SIZE*4), (QUADCOPTER_BODY_SIZE*8), (QUADCOPTER_BODY_SIZE*8), SKY)
-        #redraw_bg_range(self.x - 20, self.y - 20, self.x + 20, self.y + 20)
+        #ugfx.area(self.x-(QUADCOPTER_BODY_SIZE*4), self.y-(QUADCOPTER_BODY_SIZE*4), (QUADCOPTER_BODY_SIZE*8), (QUADCOPTER_BODY_SIZE*8), SKY)
+        redraw_bg_range(self.x - 20, self.y - 20, self.x + 20, self.y + 20)
     
     def draw(self):
-        self.crashing = not (pyb.rng() % 100)
-        ugfx.area(self.x-QUADCOPTER_BODY_SIZE, self.y-QUADCOPTER_BODY_SIZE, QUADCOPTER_BODY_SIZE*2, QUADCOPTER_BODY_SIZE*2, QUADCOPTER_BODY)
+        if not self.crashing:
+            self.crashing = not (pyb.rng() % 500)
+        ugfx.area(self.x-QUADCOPTER_BODY_SIZE, self.y-QUADCOPTER_BODY_SIZE, QUADCOPTER_BODY_SIZE*2, QUADCOPTER_BODY_SIZE*2, self.color)
         self.animation_frame += 1
         self.animation_frame %= 4
         for armature_x, armature_y in (
@@ -167,7 +191,7 @@ class Quadcopter(object):
         ):
             rotor_center_x = self.x + armature_x
             rotor_center_y = self.y + armature_y
-            ugfx.thickline(rotor_center_x, rotor_center_y, self.x, self.y, QUADCOPTER_BODY, 2, False)
+            ugfx.thickline(rotor_center_x, rotor_center_y, self.x, self.y, self.color, 2, False)
             if self.animation_frame == 0:
                 ugfx.line(rotor_center_x - int(QUADCOPTER_BODY_SIZE*0.7), rotor_center_y - int(QUADCOPTER_BODY_SIZE*0.7), rotor_center_x + int(QUADCOPTER_BODY_SIZE*0.7), rotor_center_y + int(QUADCOPTER_BODY_SIZE*0.7), ugfx.BLACK)
             elif self.animation_frame == 1:
@@ -179,6 +203,11 @@ class Quadcopter(object):
         draw_crosshair(crosshair_x, crosshair_y)
     
 def spawn_quadcopter():
+    if len(quadcopters) > 5:
+        print("Too many copters! Call the CAA")
+        global tmc_count
+        tmc_count += 1
+        return
     right = pyb.rng() % 2
     if right:
         x = 0
@@ -186,18 +215,29 @@ def spawn_quadcopter():
     else:
         x = 320
         direction = '-'
-    quadcopter = Quadcopter(x, pyb.rng() % 200, direction=direction)
+    max_speed = 3 + (tmc_count % 300)
+    if max_speed > 6: max_speed = 6
+    speed = (pyb.rng() % max_speed) + 1
+    quadcopter = Quadcopter(x, pyb.rng() % 200, direction=direction, speed=speed)
     quadcopters.append(quadcopter)
 
 def animate_quadcopters():
     for quadcopter in quadcopters:
-        quadcopter.move_copter()
+        try:
+            quadcopter.move_copter()
+        except ValueError:
+            die()
+            quadcopters.remove(quadcopter)
 
 frame_times = []
 
+def die():
+    global lives
+    lives -= 1
+
 def draw_fps():
     ugfx.set_default_font(ugfx.FONT_SMALL)
-    redraw_bg_range(300, 10, 320, 35)
+    #redraw_bg_range(300, 10, 320, 35)
     try:
         fps = int((len(frame_times) / (frame_times[-1] - frame_times[0])) * 1000)
     except ZeroDivisionError:
@@ -205,29 +245,33 @@ def draw_fps():
     ugfx.text(300, 10, "%d" % fps, ugfx.WHITE)
     
 
-while True:
-    if buttons.is_pressed("BTN_MENU"):
-        break
-    if buttons.is_pressed("JOY_LEFT"):
-        move_crosshair(-5, 0)
-    if buttons.is_pressed("JOY_RIGHT"):
-        move_crosshair(5, 0)
-    if buttons.is_pressed("JOY_UP"):
-        move_crosshair(0, -5)
-    if buttons.is_pressed("JOY_DOWN"):
-        move_crosshair(0, 5)
-    if buttons.is_pressed("JOY_CENTER"):
-        shoot()
-    if pyb.millis() > next_change:
-        next_change = pyb.millis() + SCREEN_DURATION
-        frame_times.append(pyb.millis())
-        frame_times = frame_times[-50:]
-        draw_fps()
-        print(pixels)
-        pixels = 0
-        animate_quadcopters()
-    if pyb.millis() > next_enemy:
-        spawn_quadcopter()
-        next_enemy = pyb.millis () + ENEMY_FREQUENCY - (score * 10)
-        
-    
+playing = True
+while playing:
+    points = 0
+    lives = 3
+    redraw_whole_bg()
+    while lives >= 0:
+        if buttons.is_pressed("BTN_MENU"):
+            break
+        if buttons.is_pressed("JOY_LEFT"):
+            move_crosshair(-5, 0)
+        if buttons.is_pressed("JOY_RIGHT"):
+            move_crosshair(5, 0)
+        if buttons.is_pressed("JOY_UP"):
+            move_crosshair(0, -5)
+        if buttons.is_pressed("JOY_DOWN"):
+            move_crosshair(0, 5)
+        if buttons.is_pressed("JOY_CENTER"):
+            shoot()
+        if pyb.millis() > next_change:
+            next_change = pyb.millis() + SCREEN_DURATION
+            frame_times.append(pyb.millis())
+            frame_times = frame_times[-50:]
+            draw_fps()
+            print(pixels)
+            pixels = 0
+            animate_quadcopters()
+        if pyb.millis() > next_enemy:
+            spawn_quadcopter()
+            next_enemy = pyb.millis () + ENEMY_FREQUENCY - (score * 10)
+    playing = prompt_boolean("Try again?")
