@@ -2,7 +2,7 @@ import buttons
 import ugfx
 import micropython
 import pyb
-from dialogs import prompt_boolean
+from dialogs import prompt_boolean, notice
 
 crosshair_x = 100
 crosshair_y = 100
@@ -14,17 +14,26 @@ CROSSHAIR_BLANKING = CROSSHAIR_DIAMETER + CROSSHAIR_RADIUS
 GROUND_1 = ugfx.html_color(0x804000)
 GROUND_2 = ugfx.html_color(0xf05030)
 GRASS = ugfx.html_color(0x4DBD33)
-SKY = ugfx.html_color(0x87cefa)
+SKIES = (
+    None,
+    ugfx.html_color(0xA2B5BB),
+    ugfx.html_color(0x91C3E0),
+    ugfx.html_color(0x87CEFA),
+    ugfx.html_color(0x4080DF),
+    ugfx.html_color(0x1249C5),
+    ugfx.html_color(0x082978),
+)
 QUADCOPTER_BODY = ugfx.BLACK
 QUADCOPTER_BODY_SIZE = 5
 SCREEN_DURATION = 100
-ENEMY_FREQUENCY = 4000
+ENEMY_FREQUENCY = 2800
 next_change = 0
 next_enemy = 0
 animation_frame = 0
 pixels = 0
 tmc_count = 0
 last_crosshair_move = 0
+level = 1
 
 def random_choice(objs):
     # We don't have import random :(
@@ -47,11 +56,11 @@ def get_background_pixel(x, y):
         # This is the grass
         return GRASS
     else:
-        return SKY
+        return SKIES[level]
 
 
 def redraw_whole_bg():
-    ugfx.clear(SKY)
+    ugfx.clear(SKIES[level])
     ugfx.area(0, 191, 320, 10, GRASS)
     ugfx.area(0, 201, 320, 40, GROUND_2)
     redraw_bg_range(0, 201, 320, 240)
@@ -61,13 +70,27 @@ def redraw_whole_bg():
 def redraw_bg_range(x: int, y: int, to_x: int, to_y: int):
     if x < 0: x = 0
     if y < 0: y = 0
-    if x > 239: x = 239
-    if y > 319: y = 319
-    ugfx.stream_start(x, y, to_x-x, to_y-y)
-    for x_value in range(x, to_x):
-        for y_value in range(y, to_y):
-            ugfx.stream_color(get_background_pixel(x_value, y_value))
-    ugfx.stream_stop()
+    if x > 319: x = 319
+    if y > 239: y = 239
+
+    if to_y < 190:
+        # This is just sky
+        ugfx.area(x, y, to_x-x, to_y-y, SKIES[level])
+        complex_draw = False
+    elif to_y > 190 and y < 190:
+        # Partial sky coverage
+        ugfx.area(x, y, to_x-x, 190-y, SKIES[level])
+        y = 190
+        complex_draw = True
+    else:
+        complex_draw = True
+    
+    if complex_draw:
+        ugfx.stream_start(x, y, to_x-x, to_y-y)
+        for x_value in range(x, to_x):
+            for y_value in range(y, to_y):
+                ugfx.stream_color(get_background_pixel(x_value, y_value))
+        ugfx.stream_stop()
 
 
 def draw_crosshair(x, y):
@@ -112,6 +135,7 @@ def is_hit(x_aim, y_aim):
         if copter.x - 20 < x_aim < copter.x + 20 and copter.y - 20 < y_aim < copter.y + 20:
             copter.undraw()
             award_points(copter.score)
+            move_crosshair(0, 0)
             quadcopters.remove(copter)
             return True
 
@@ -137,10 +161,6 @@ def tone(f,t,b=0):
         pyb.udelay(p)
     if b!=0: pyb.delay(b)
     
-redraw_whole_bg()
-award_points(0)
-
-move_crosshair(0, 0)
 buttons.init()
 
 quadcopters = []
@@ -164,6 +184,8 @@ class Quadcopter(object):
     def move_copter(self):
         if self.x < -20 or self.x > 350:
             raise ValueError("Too far outside the screen")
+        if self.y > 250:
+            raise ValueError("Crashed!")
         self.undraw()
         if self.direction == '+':
             self.x += 2 * self.speed
@@ -174,8 +196,12 @@ class Quadcopter(object):
         self.draw()
     
     def undraw(self):
-        #ugfx.area(self.x-(QUADCOPTER_BODY_SIZE*4), self.y-(QUADCOPTER_BODY_SIZE*4), (QUADCOPTER_BODY_SIZE*8), (QUADCOPTER_BODY_SIZE*8), SKY)
-        redraw_bg_range(self.x - 20, self.y - 20, self.x + 20, self.y + 20)
+        redraw_bg_range(
+            self.x - (QUADCOPTER_BODY_SIZE*5),
+            self.y - (QUADCOPTER_BODY_SIZE*5),
+            self.x + (QUADCOPTER_BODY_SIZE*5),
+            self.y + (QUADCOPTER_BODY_SIZE*5)
+        )
     
     def draw(self):
         if not self.crashing:
@@ -203,7 +229,7 @@ class Quadcopter(object):
         draw_crosshair(crosshair_x, crosshair_y)
     
 def spawn_quadcopter():
-    if len(quadcopters) > 5:
+    if len(quadcopters) > level:
         print("Too many copters! Call the CAA")
         global tmc_count
         tmc_count += 1
@@ -215,10 +241,8 @@ def spawn_quadcopter():
     else:
         x = 320
         direction = '-'
-    max_speed = 3 + (tmc_count % 300)
-    if max_speed > 6: max_speed = 6
-    speed = (pyb.rng() % max_speed) + 1
-    quadcopter = Quadcopter(x, pyb.rng() % 200, direction=direction, speed=speed)
+    speed = (pyb.rng() % (level-1)) + 1
+    quadcopter = Quadcopter(x, pyb.rng() % 160, direction=direction, speed=speed)
     quadcopters.append(quadcopter)
 
 def animate_quadcopters():
@@ -245,11 +269,33 @@ def draw_fps():
     ugfx.text(300, 10, "%d" % fps, ugfx.WHITE)
     
 
+def maybe_advance_level():
+    global level
+    if score < 80:
+        new_level = 1
+    elif score < 150:
+        new_level = 2
+    elif score < 300:
+        new_level = 3
+    elif score < 600:
+        new_level = 4
+    elif score < 1000:
+        new_level = 5
+    else:
+        new_level = 6
+    if new_level != level:
+        #notice(text="You have reached level %d" % level, title="Congratulations")
+        level = new_level
+        redraw_whole_bg()
+        
+
 playing = True
 while playing:
     points = 0
     lives = 3
     redraw_whole_bg()
+    award_points(0)
+    move_crosshair(0, 0)
     while lives >= 0:
         if buttons.is_pressed("BTN_MENU"):
             break
@@ -273,5 +319,6 @@ while playing:
             animate_quadcopters()
         if pyb.millis() > next_enemy:
             spawn_quadcopter()
-            next_enemy = pyb.millis () + ENEMY_FREQUENCY - (score * 10)
-    playing = prompt_boolean("Try again?")
+            next_enemy = pyb.millis () + ENEMY_FREQUENCY - (level * 300)
+        maybe_advance_level()
+    playing = prompt_boolean("You scored %d. Try again?" % score, title="Game over!")
