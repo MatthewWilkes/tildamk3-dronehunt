@@ -2,6 +2,7 @@
 ### Description: Shoot down unauthorised flying toys
 ### Category: Games 
 ### License: MIT
+### reboot-before-run: True
 ### Appname : DroneHunt
 
 import buttons
@@ -30,6 +31,10 @@ QUADCOPTER_BODY = ugfx.BLACK
 QUADCOPTER_BODY_SIZE = 5
 SCREEN_DURATION = 100
 ENEMY_FREQUENCY = 2800
+CROSSHAIR_DIAMETER = 10
+CROSSHAIR_RADIUS = CROSSHAIR_DIAMETER // 2
+CROSSHAIR_LINE_OFFSET = CROSSHAIR_RADIUS // 2
+CROSSHAIR_BLANKING = CROSSHAIR_DIAMETER + CROSSHAIR_RADIUS
 next_change = 0
 next_enemy = 0
 animation_frame = 0
